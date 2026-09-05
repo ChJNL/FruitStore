@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>🍎 과일 판매 게임 - MVP 프로토타입</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="game-container">
+  <h1>🍎 과일 판매 게임 (MVP)</h1>
+
+  <!-- ===== 최소 UI: 골드 / 보유 사과 / 진열대 사과 한눈에 보기 ===== -->
+  <div class="status-bar">
+    <div class="status-item">
+      <div class="label">💰 골드</div>
+      <div class="value" id="goldDisplay">0</div>
+    </div>
+    <div class="status-item">
+      <div class="label">🍏 보유 사과</div>
+      <div class="value" id="appleDisplay">0</div>
+    </div>
+    <div class="status-item">
+      <div class="label">🧺 진열대</div>
+      <div class="value" id="standDisplay">0 / 5</div>
+    </div>
+  </div>
+
+  <!-- ===== 1. 과일 수급 시스템 ===== -->
+  <div class="section">
+    <h2>1. 과일 수확</h2>
+    <button class="btn-harvest" id="harvestBtn">🍎 사과 수확 (+1)</button>
+  </div>
+
+  <!-- ===== 2. 인벤토리 및 판매 시스템 ===== -->
+  <div class="section">
+    <h2>2. 진열대 관리 (손님이 주기적으로 방문해서 구매합니다)</h2>
+    <button class="btn-display" id="displayOneBtn">진열대에 올리기 (1개)</button>
+    <button class="btn-display" id="displayAllBtn">전부 진열대에 올리기</button>
+  </div>
+
+  <!-- ===== 3. 경제 및 업그레이드 시스템 ===== -->
+  <div class="section">
+    <h2>3. 업그레이드</h2>
+
+    <div class="upgrade-box">
+      <div class="upgrade-desc">자동 수확기: 1초마다 사과 1개 자동 생산</div>
+      <button class="btn-upgrade" id="upgradeHarvesterBtn">구매 (50 골드)</button>
+    </div>
+
+    <div class="upgrade-box">
+      <div class="upgrade-desc">진열대 확장: 최대 보관 용량 +10</div>
+      <button class="btn-upgrade" id="upgradeStandBtn">구매 (100 골드)</button>
+    </div>
+  </div>
+
+  <!-- ===== 이벤트 로그 (디버깅 및 피드백용, 필수 요구사항은 아니지만 확인하기 편함) ===== -->
+  <div class="section">
+    <h2>📜 이벤트 로그</h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
