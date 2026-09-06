@@ -280,7 +280,7 @@ button {
 }
 
 /* =========================================
-   5. 판매 로그 - 영수증 느낌
+   5. 판매 로그 - 영수증 느낌 (수정 적용 완료)
    ========================================= */
 .log-panel {
   border-top: 8px solid var(--apple-red);
@@ -314,7 +314,7 @@ button {
 }
 
 .sales-log {
-  flex: 1;
+  max-height: 360px; /* 이 높이를 넘으면 내부 스크롤이 생깁니다 */
   overflow-y: auto;
   background: #fff;
   border: 1px dashed var(--wood-dark);
@@ -322,6 +322,24 @@ button {
   padding: 10px 12px;
   font-size: 0.82rem;
   line-height: 1.5;
+
+  /* 나무/장부 컨셉에 맞춘 스크롤바 디자인 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--wood-dark) var(--paper-cream-dim);
+}
+
+.sales-log::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sales-log::-webkit-scrollbar-track {
+  background: var(--paper-cream-dim);
+  border-radius: 8px;
+}
+
+.sales-log::-webkit-scrollbar-thumb {
+  background: var(--wood-dark);
+  border-radius: 8px;
 }
 
 .sales-log .log-entry {
