@@ -1,186 +1,421 @@
-/*
-  =====================================================================
-  과일 판매 게임 - MVP 프로토타입 스크립트
-  파이썬에 익숙하신 분을 위한 비교 주석을 함께 달았습니다.
-  =====================================================================
-*/
+/* =========================================================
+   과일가게 경영 게임 - MVP
+   코어 루프: 도매 구매 -> 진열/가격설정 -> 손님 방문 판매 -> 신선도 하락/폐기
+   ========================================================= */
 
-// ----------------------------------------------------------------
-// 1. 게임 상태(State) 정의
-//    파이썬의 딕셔너리(dict)와 비슷하게, 객체 리터럴({})로 상태를 관리합니다.
-//    예: 파이썬 -> state = {"gold": 0, "apples": 0, ...}
-// ----------------------------------------------------------------
-const state = {
-  gold: 0,              // 보유 골드
-  apples: 0,            // 아직 진열대에 올리지 않은 보유 사과(인벤토리)
-  standApples: 0,       // 진열대에 올라간 사과 수
-  standCapacity: 5,     // 진열대 최대 용량 (초기값)
-  hasAutoHarvester: false, // 자동 수확기 구매 여부
-  hasStandUpgrade: false,  // 진열대 확장 구매 여부
-};
+/* ---------- 1. 게임 상수 ---------- */
 
-// ----------------------------------------------------------------
-// 2. HTML 요소 가져오기 (DOM 참조)
-//    JS의 document.getElementById()는 파이썬 GUI 라이브러리(tkinter 등)의
-//    위젯 객체를 미리 변수에 담아두는 것과 비슷한 개념입니다.
-// ----------------------------------------------------------------
-const goldDisplay = document.getElementById("goldDisplay");
-const appleDisplay = document.getElementById("appleDisplay");
-const standDisplay = document.getElementById("standDisplay");
+// 판매하는 과일 목록 (도매가 = 사올 때 가격, fairPrice = 손님이 생각하는 적정 판매가)
+const FRUITS = [
+  { id: "apple",  name: "사과",   emoji: "🍎", wholesalePrice: 800,  fairPrice: 1500 },
+  { id: "banana", name: "바나나", emoji: "🍌", wholesalePrice: 500,  fairPrice: 1000 },
+  { id: "orange", name: "오렌지", emoji: "🍊", wholesalePrice: 700,  fairPrice: 1300 },
+];
 
-const harvestBtn = document.getElementById("harvestBtn");
-const displayOneBtn = document.getElementById("displayOneBtn");
-const displayAllBtn = document.getElementById("displayAllBtn");
-const upgradeHarvesterBtn = document.getElementById("upgradeHarvesterBtn");
-const upgradeStandBtn = document.getElementById("upgradeStandBtn");
+const STORAGE_KEY = "fruitShopGameState";
+const FRESHNESS_STAGES = [100, 70, 40, 0]; // 신선도는 이 순서대로 하루씩 내려감
+const START_MONEY = 100000;
+const VISIT_MIN_MS = 1800; // 손님 방문 최소 간격
+const VISIT_MAX_MS = 3400; // 손님 방문 최대 간격
 
-const logBox = document.getElementById("log");
+/* ---------- 2. 게임 상태(state) ---------- */
 
-// ----------------------------------------------------------------
-// 3. 로그 출력 함수
-//    파이썬의 print()와 비슷하지만, 화면(HTML)에 직접 줄을 추가합니다.
-// ----------------------------------------------------------------
-function addLog(message) {
+// 과일 하나의 기본 상태를 만들어주는 함수
+function createDefaultFruitState(fruit) {
+  return {
+    stock: 0,           // 창고 재고 (아직 진열 안 한 것)
+    shelf: 0,           // 진열대에 올려서 판매 중인 수량
+    freshness: 100,     // 신선도 %
+    price: fruit.fairPrice, // 판매가 (기본값 = 적정가)
+  };
+}
+
+// 게임 전체 기본 상태
+function createDefaultState() {
+  const fruitsState = {};
+  FRUITS.forEach((fruit) => {
+    fruitsState[fruit.id] = createDefaultFruitState(fruit);
+  });
+
+  return {
+    money: START_MONEY,
+    day: 1,
+    todayStats: { revenue: 0, sold: 0, visitors: 0 },
+    fruits: fruitsState,
+  };
+}
+
+let state = createDefaultState();
+let isOpen = false;      // 지금 영업 중인지 여부 (새로고침 시 저장 안 함)
+let visitTimerId = null; // 손님 방문 예약용 타이머 id
+
+/* ---------- 3. localStorage 저장 / 불러오기 ---------- */
+
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function loadState() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) {
+    state = createDefaultState();
+    return;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    // 혹시 저장된 데이터에 새 과일 항목이 없으면 기본값으로 채워줌
+    FRUITS.forEach((fruit) => {
+      if (!parsed.fruits[fruit.id]) {
+        parsed.fruits[fruit.id] = createDefaultFruitState(fruit);
+      }
+    });
+    state = parsed;
+  } catch (e) {
+    console.error("저장된 데이터를 불러오는 중 오류가 발생했습니다.", e);
+    state = createDefaultState();
+  }
+}
+
+function resetGame() {
+  const ok = confirm("정말 초기화할까요? 지금까지의 진행 상황이 모두 사라집니다.");
+  if (!ok) return;
+
+  localStorage.removeItem(STORAGE_KEY);
+  state = createDefaultState();
+  stopBusiness();
+  document.getElementById("salesLog").innerHTML = "";
+  renderAll();
+  showToast("게임이 초기 상태로 리셋되었습니다.");
+}
+
+/* ---------- 4. 화면 렌더링 ---------- */
+
+function formatMoney(n) {
+  return n.toLocaleString("ko-KR") + "원";
+}
+
+function getFreshnessInfo(freshness) {
+  if (freshness >= 100) return { label: "싱싱해요", color: "#4C8C3F" };
+  if (freshness >= 70) return { label: "괜찮아요", color: "#F2C14E" };
+  if (freshness >= 40) return { label: "시들해요", color: "#E08E27" };
+  return { label: "폐기됨", color: "#D64541" };
+}
+
+function renderTopBar() {
+  document.getElementById("dayDisplay").textContent = state.day;
+  document.getElementById("moneyDisplay").textContent = formatMoney(state.money);
+
+  document.getElementById("visitorCount").textContent = state.todayStats.visitors + "명";
+  document.getElementById("soldCount").textContent = state.todayStats.sold + "개";
+  document.getElementById("revenueCount").textContent = formatMoney(state.todayStats.revenue);
+}
+
+// 좌측 도매 시장 목록 그리기
+function renderMarket() {
+  const container = document.getElementById("marketList");
+  container.innerHTML = FRUITS.map((fruit) => {
+    const data = state.fruits[fruit.id];
+    return `
+      <div class="fruit-card" data-fruit="${fruit.id}">
+        <div class="fruit-icon">${fruit.emoji}</div>
+        <div class="fruit-info">
+          <h3>${fruit.name}</h3>
+          <p>도매가: <strong>${fruit.wholesalePrice.toLocaleString()}원</strong> / 개</p>
+          <p>창고 재고: <strong>${data.stock}개</strong></p>
+        </div>
+        <div class="fruit-actions">
+          <div class="action-row">
+            <input type="number" class="qty-input buy-qty" min="1" value="1">
+            <button class="btn-buy" data-action="buy" data-fruit="${fruit.id}">구매</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+// 중앙 진열대 목록 그리기
+function renderShelf() {
+  const container = document.getElementById("shelfList");
+  container.innerHTML = FRUITS.map((fruit) => {
+    const data = state.fruits[fruit.id];
+    const fresh = getFreshnessInfo(data.freshness);
+    return `
+      <div class="fruit-card shelf-card" data-fruit="${fruit.id}">
+        <div class="fruit-icon">${fruit.emoji}</div>
+        <div class="fruit-info">
+          <h3>${fruit.name}</h3>
+          <p>창고 ${data.stock}개 → 진열 <strong>${data.shelf}개</strong></p>
+          <p><span class="freshness-badge" style="background:${fresh.color}">${data.freshness}% ${fresh.label}</span></p>
+          <p class="fair-price-hint">손님 적정가 참고: 약 ${fruit.fairPrice.toLocaleString()}원</p>
+        </div>
+        <div class="fruit-actions">
+          <div class="action-row">
+            <input type="number" class="qty-input shelf-qty" min="1" value="1">
+            <button class="btn-shelf" data-action="shelf" data-fruit="${fruit.id}">진열</button>
+          </div>
+          <div class="action-row">
+            <label style="font-size:0.8rem;">판매가</label>
+            <input type="number" class="price-input" data-action="price" data-fruit="${fruit.id}" value="${data.price}" min="0" step="50">
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderAll() {
+  renderTopBar();
+  renderMarket();
+  renderShelf();
+}
+
+/* ---------- 5. 로그 & 토스트 ---------- */
+
+function addLog(message, type = "") {
+  const log = document.getElementById("salesLog");
   const entry = document.createElement("div");
-  entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-  logBox.prepend(entry); // 최신 로그가 위로 오도록 맨 앞에 삽입
-}
+  entry.className = "log-entry" + (type ? " log-" + type : "");
+  entry.textContent = message;
+  log.prepend(entry); // 최신 로그가 위로 오도록
 
-// ----------------------------------------------------------------
-// 4. 화면 갱신 함수 (렌더링)
-//    state 값이 바뀔 때마다 이 함수를 호출해서 화면 텍스트를 동기화합니다.
-//    파이썬으로 치면 매번 print(state)를 다시 하는 대신,
-//    화면의 특정 텍스트만 갱신하는 것과 같습니다.
-// ----------------------------------------------------------------
-function updateUI() {
-  goldDisplay.textContent = state.gold;
-  appleDisplay.textContent = state.apples;
-  standDisplay.textContent = `${state.standApples} / ${state.standCapacity}`;
-
-  // 진열대가 가득 찼으면 '진열대에 올리기' 버튼 비활성화
-  const standFull = state.standApples >= state.standCapacity;
-  displayOneBtn.disabled = standFull || state.apples <= 0;
-  displayAllBtn.disabled = standFull || state.apples <= 0;
-
-  // 업그레이드 버튼: 골드 부족하거나 이미 구매했으면 비활성화
-  upgradeHarvesterBtn.disabled = state.hasAutoHarvester || state.gold < 50;
-  upgradeHarvesterBtn.textContent = state.hasAutoHarvester
-    ? "구매 완료 ✅"
-    : "구매 (50 골드)";
-
-  upgradeStandBtn.disabled = state.hasStandUpgrade || state.gold < 100;
-  upgradeStandBtn.textContent = state.hasStandUpgrade
-    ? "구매 완료 ✅"
-    : "구매 (100 골드)";
-}
-
-// ----------------------------------------------------------------
-// 5. 핵심 기능 함수들
-// ----------------------------------------------------------------
-
-// [요구사항 1] 사과 수확 버튼 -> 보유량 +1
-function harvestApple() {
-  state.apples += 1;
-  updateUI();
-}
-
-// [요구사항 2] 보유 사과를 진열대로 이동 (1개씩)
-function moveOneToDisplay() {
-  if (state.apples > 0 && state.standApples < state.standCapacity) {
-    state.apples -= 1;
-    state.standApples += 1;
-    updateUI();
+  // 로그가 너무 길어지지 않도록 최근 60개만 유지
+  while (log.children.length > 60) {
+    log.removeChild(log.lastChild);
   }
 }
 
-// 보유 사과를 진열대 여유 공간만큼 한 번에 이동 (편의 기능)
-function moveAllToDisplay() {
-  // 파이썬의 min() 함수와 동일한 역할을 하는 Math.min()
-  const space = state.standCapacity - state.standApples;
-  const moveCount = Math.min(space, state.apples);
+let toastTimerId = null;
+function showToast(message) {
+  const toast = document.getElementById("toast");
+  toast.textContent = message;
+  toast.classList.remove("hidden");
 
-  if (moveCount > 0) {
-    state.apples -= moveCount;
-    state.standApples += moveCount;
-    addLog(`사과 ${moveCount}개를 진열대에 올렸습니다.`);
-    updateUI();
-  }
+  clearTimeout(toastTimerId);
+  toastTimerId = setTimeout(() => {
+    toast.classList.add("hidden");
+  }, 2000);
 }
 
-// [요구사항 2] 손님(NPC) 방문 -> 진열대 사과 구매, 1개당 10골드
-function customerVisit() {
-  if (state.standApples <= 0) {
-    addLog("손님이 방문했지만 진열대가 비어있어 그냥 돌아갔습니다.");
+/* ---------- 6. 도매 구매 / 진열 / 가격 설정 ---------- */
+
+function buyFruit(fruitId, qty) {
+  const fruit = FRUITS.find((f) => f.id === fruitId);
+  const data = state.fruits[fruitId];
+
+  if (!qty || qty <= 0) {
+    showToast("구매 수량을 1개 이상 입력해주세요.");
     return;
   }
 
-  // 손님은 진열대에 있는 수량 내에서 1~3개를 무작위로 구매
-  // 파이썬의 random.randint(1, 3)과 동일한 로직
-  const wantToBuy = Math.floor(Math.random() * 3) + 1;
-  const actualBuy = Math.min(wantToBuy, state.standApples);
+  const cost = fruit.wholesalePrice * qty;
+  if (state.money < cost) {
+    showToast("소지금이 부족합니다!");
+    return;
+  }
 
-  const earnedGold = actualBuy * 10;
-  state.standApples -= actualBuy;
-  state.gold += earnedGold;
+  state.money -= cost;
+  data.stock += qty;
+  data.freshness = 100; // 새로 들여온 싱싱한 과일이 섞이며 신선도가 갱신됨
 
-  addLog(`손님이 방문해서 사과 ${actualBuy}개를 구매했습니다. (+${earnedGold} 골드)`);
-  updateUI();
+  saveState();
+  renderAll();
+  showToast(`${fruit.name} ${qty}개를 ${cost.toLocaleString()}원에 구매했습니다.`);
 }
 
-// [요구사항 3] 업그레이드 1: 자동 수확기 구매
-function buyAutoHarvester() {
-  if (state.hasAutoHarvester || state.gold < 50) return;
+function moveToShelf(fruitId, qty) {
+  const fruit = FRUITS.find((f) => f.id === fruitId);
+  const data = state.fruits[fruitId];
 
-  state.gold -= 50;
-  state.hasAutoHarvester = true;
-  addLog("자동 수확기를 구매했습니다! 이제 1초마다 사과가 자동 생산됩니다.");
+  if (!qty || qty <= 0) {
+    showToast("진열 수량을 1개 이상 입력해주세요.");
+    return;
+  }
+  if (qty > data.stock) {
+    showToast("창고 재고보다 많이 진열할 수 없습니다.");
+    return;
+  }
 
-  // setInterval: 파이썬의 while True + time.sleep(1) 반복문과 비슷하게
-  // "일정 시간마다 반복 실행"하는 브라우저 타이머 함수입니다.
-  setInterval(() => {
-    state.apples += 1;
-    updateUI();
-  }, 1000); // 1000ms = 1초
+  data.stock -= qty;
+  data.shelf += qty;
 
-  updateUI();
+  saveState();
+  renderAll();
+  showToast(`${fruit.name} ${qty}개를 진열대에 올렸습니다.`);
 }
 
-// [요구사항 3] 업그레이드 2: 진열대 확장 구매
-function buyStandUpgrade() {
-  if (state.hasStandUpgrade || state.gold < 100) return;
-
-  state.gold -= 100;
-  state.hasStandUpgrade = true;
-  state.standCapacity += 10; // 용량 증가
-  addLog("진열대를 확장했습니다! 최대 용량이 10 늘어났습니다.");
-
-  updateUI();
+function updatePrice(fruitId, value) {
+  let price = parseInt(value, 10);
+  if (isNaN(price) || price < 0) price = 0;
+  state.fruits[fruitId].price = price;
+  saveState();
 }
 
-// ----------------------------------------------------------------
-// 6. 이벤트 리스너 등록 (버튼 클릭 -> 함수 실행 연결)
-// ----------------------------------------------------------------
-harvestBtn.addEventListener("click", harvestApple);
-displayOneBtn.addEventListener("click", moveOneToDisplay);
-displayAllBtn.addEventListener("click", moveAllToDisplay);
-upgradeHarvesterBtn.addEventListener("click", buyAutoHarvester);
-upgradeStandBtn.addEventListener("click", buyStandUpgrade);
+/* ---------- 7. 손님 NPC 방문 로직 ---------- */
 
-// ----------------------------------------------------------------
-// 7. 손님 방문 타이머 시작 (3~6초 사이 무작위 주기로 반복 방문)
-//    setInterval 대신 setTimeout을 재귀 호출해서 "매번 다른 주기"를 구현합니다.
-// ----------------------------------------------------------------
-function scheduleNextCustomer() {
-  const nextVisitDelay = Math.floor(Math.random() * 3000) + 3000; // 3000~6000ms
-  setTimeout(() => {
-    customerVisit();
-    scheduleNextCustomer(); // 자기 자신을 다시 예약 (재귀)
-  }, nextVisitDelay);
+function scheduleNextVisit() {
+  if (!isOpen) return;
+  const delay = Math.random() * (VISIT_MAX_MS - VISIT_MIN_MS) + VISIT_MIN_MS;
+  visitTimerId = setTimeout(customerVisit, delay);
 }
 
-// ----------------------------------------------------------------
-// 8. 게임 시작
-// ----------------------------------------------------------------
-addLog("게임을 시작합니다. 사과를 수확해서 진열대에 올려보세요!");
-updateUI();
-scheduleNextCustomer();
+function customerVisit() {
+  if (!isOpen) return;
+
+  // 진열되어 있고(shelf > 0) 신선도가 0이 아닌 과일들만 손님이 구경할 수 있음
+  const available = FRUITS.filter((fruit) => {
+    const data = state.fruits[fruit.id];
+    return data.shelf > 0 && data.freshness > 0;
+  });
+
+  if (available.length === 0) {
+    // 살 게 없으면 손님이 오지 않은 걸로 치고 다음 방문만 예약
+    scheduleNextVisit();
+    return;
+  }
+
+  const fruit = available[Math.floor(Math.random() * available.length)];
+  const data = state.fruits[fruit.id];
+
+  state.todayStats.visitors += 1;
+
+  // 가격 대비 적정가 비율로 구매 확률 계산
+  const ratio = data.price / fruit.fairPrice;
+  let baseChance;
+  if (ratio <= 0.8) baseChance = 0.95;
+  else if (ratio <= 1.0) baseChance = 0.85;
+  else if (ratio <= 1.2) baseChance = 0.55;
+  else if (ratio <= 1.5) baseChance = 0.25;
+  else baseChance = 0.05;
+
+  // 신선도가 낮을수록 구매 확률이 더 떨어짐
+  const freshnessFactor = 0.5 + 0.5 * (data.freshness / 100);
+  const finalChance = baseChance * freshnessFactor;
+
+  const willBuy = Math.random() < finalChance;
+
+  if (willBuy) {
+    const qty = Math.min(data.shelf, Math.floor(Math.random() * 3) + 1);
+    const revenue = qty * data.price;
+
+    data.shelf -= qty;
+    state.money += revenue;
+    state.todayStats.revenue += revenue;
+    state.todayStats.sold += qty;
+
+    addLog(`${fruit.emoji} 손님이 ${fruit.name} ${qty}개를 ${revenue.toLocaleString()}원에 구매했습니다.`, "success");
+  } else {
+    let reason = "가격을 보고 고민하다 그냥 지나갔습니다.";
+    if (ratio > 1.2) reason = "가격이 너무 비싸다며 지나갔습니다.";
+    else if (data.freshness <= 40) reason = "신선도가 별로라며 지나갔습니다.";
+
+    addLog(`${fruit.emoji} 손님이 ${fruit.name} 앞에서 ${reason}`, "fail");
+  }
+
+  saveState();
+  renderAll();
+  scheduleNextVisit();
+}
+
+function startBusiness() {
+  if (isOpen) return;
+  isOpen = true;
+
+  document.getElementById("startBtn").textContent = "🟢 영업 중...";
+  document.getElementById("startBtn").disabled = true;
+
+  addLog(`Day ${state.day} 영업을 시작합니다.`, "day");
+  scheduleNextVisit();
+}
+
+function stopBusiness() {
+  isOpen = false;
+  clearTimeout(visitTimerId);
+  document.getElementById("startBtn").textContent = "🔔 영업 시작";
+  document.getElementById("startBtn").disabled = false;
+}
+
+/* ---------- 8. 다음 날 (정산 + 신선도 하락) ---------- */
+
+function nextDay() {
+  // 영업 중이었다면 정리하고 마감
+  if (isOpen) {
+    stopBusiness();
+  }
+
+  addLog(
+    `── Day ${state.day} 마감: 매출 ${state.todayStats.revenue.toLocaleString()}원 / 판매 ${state.todayStats.sold}개 / 방문 ${state.todayStats.visitors}명 ──`,
+    "day"
+  );
+
+  // 각 과일의 신선도를 한 단계씩 낮춤
+  FRUITS.forEach((fruit) => {
+    const data = state.fruits[fruit.id];
+    const hasStock = data.stock > 0 || data.shelf > 0;
+    if (!hasStock) return;
+
+    const currentIndex = FRESHNESS_STAGES.indexOf(data.freshness);
+    const nextIndex = Math.min(currentIndex + 1, FRESHNESS_STAGES.length - 1);
+    data.freshness = FRESHNESS_STAGES[nextIndex];
+
+    if (data.freshness === 0) {
+      const discarded = data.stock + data.shelf;
+      data.stock = 0;
+      data.shelf = 0;
+      if (discarded > 0) {
+        addLog(`${fruit.emoji} ${fruit.name} 재고 ${discarded}개가 신선도 0%로 폐기되었습니다.`, "discard");
+      }
+    }
+  });
+
+  state.day += 1;
+  state.todayStats = { revenue: 0, sold: 0, visitors: 0 };
+
+  saveState();
+  renderAll();
+  showToast(`Day ${state.day}이(가) 시작되었습니다.`);
+}
+
+/* ---------- 9. 이벤트 연결 ---------- */
+
+function attachEvents() {
+  document.getElementById("startBtn").addEventListener("click", startBusiness);
+  document.getElementById("nextDayBtn").addEventListener("click", nextDay);
+  document.getElementById("resetBtn").addEventListener("click", resetGame);
+
+  // 도매 시장: 구매 버튼 (이벤트 위임)
+  document.getElementById("marketList").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action='buy']");
+    if (!btn) return;
+
+    const fruitId = btn.dataset.fruit;
+    const card = btn.closest(".fruit-card");
+    const qty = parseInt(card.querySelector(".buy-qty").value, 10);
+    buyFruit(fruitId, qty);
+  });
+
+  // 진열대: 진열 버튼 + 가격 입력 (이벤트 위임)
+  document.getElementById("shelfList").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action='shelf']");
+    if (!btn) return;
+
+    const fruitId = btn.dataset.fruit;
+    const card = btn.closest(".fruit-card");
+    const qty = parseInt(card.querySelector(".shelf-qty").value, 10);
+    moveToShelf(fruitId, qty);
+  });
+
+  document.getElementById("shelfList").addEventListener("change", (e) => {
+    const input = e.target.closest("[data-action='price']");
+    if (!input) return;
+    updatePrice(input.dataset.fruit, input.value);
+  });
+}
+
+/* ---------- 10. 초기 실행 ---------- */
+
+document.addEventListener("DOMContentLoaded", () => {
+  loadState();
+  attachEvents();
+  renderAll();
+});

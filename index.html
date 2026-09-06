@@ -1,66 +1,78 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8" />
-<title>🍎 과일 판매 게임 - MVP 프로토타입</title>
-<link rel="stylesheet" href="style.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>우리동네 과일가게 - 경영 게임</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-<div class="game-container">
-  <h1>🍎 과일 판매 게임 (MVP)</h1>
+  <!-- 상단 자산/날짜/조작 바 -->
+  <header class="topbar">
+    <h1 class="shop-sign">🍎🍌🍊 우리동네 과일가게</h1>
 
-  <!-- ===== 최소 UI: 골드 / 보유 사과 / 진열대 사과 한눈에 보기 ===== -->
-  <div class="status-bar">
-    <div class="status-item">
-      <div class="label">💰 골드</div>
-      <div class="value" id="goldDisplay">0</div>
-    </div>
-    <div class="status-item">
-      <div class="label">🍏 보유 사과</div>
-      <div class="value" id="appleDisplay">0</div>
-    </div>
-    <div class="status-item">
-      <div class="label">🧺 진열대</div>
-      <div class="value" id="standDisplay">0 / 5</div>
-    </div>
-  </div>
-
-  <!-- ===== 1. 과일 수급 시스템 ===== -->
-  <div class="section">
-    <h2>1. 과일 수확</h2>
-    <button class="btn-harvest" id="harvestBtn">🍎 사과 수확 (+1)</button>
-  </div>
-
-  <!-- ===== 2. 인벤토리 및 판매 시스템 ===== -->
-  <div class="section">
-    <h2>2. 진열대 관리 (손님이 주기적으로 방문해서 구매합니다)</h2>
-    <button class="btn-display" id="displayOneBtn">진열대에 올리기 (1개)</button>
-    <button class="btn-display" id="displayAllBtn">전부 진열대에 올리기</button>
-  </div>
-
-  <!-- ===== 3. 경제 및 업그레이드 시스템 ===== -->
-  <div class="section">
-    <h2>3. 업그레이드</h2>
-
-    <div class="upgrade-box">
-      <div class="upgrade-desc">자동 수확기: 1초마다 사과 1개 자동 생산</div>
-      <button class="btn-upgrade" id="upgradeHarvesterBtn">구매 (50 골드)</button>
+    <div class="stat-group">
+      <div class="stat-box">
+        <span class="stat-label">Day</span>
+        <span id="dayDisplay" class="stat-value">1</span>
+      </div>
+      <div class="stat-box money-box">
+        <span class="stat-label">소지금</span>
+        <span id="moneyDisplay" class="stat-value">100,000원</span>
+      </div>
     </div>
 
-    <div class="upgrade-box">
-      <div class="upgrade-desc">진열대 확장: 최대 보관 용량 +10</div>
-      <button class="btn-upgrade" id="upgradeStandBtn">구매 (100 골드)</button>
+    <div class="control-group">
+      <button id="startBtn" class="btn btn-start">🔔 영업 시작</button>
+      <button id="nextDayBtn" class="btn btn-nextday">🌙 다음 날로 (정산)</button>
+      <button id="resetBtn" class="btn btn-reset">♻️ 게임 리셋</button>
     </div>
-  </div>
+  </header>
 
-  <!-- ===== 이벤트 로그 (디버깅 및 피드백용, 필수 요구사항은 아니지만 확인하기 편함) ===== -->
-  <div class="section">
-    <h2>📜 이벤트 로그</h2>
-    <div id="log"></div>
-  </div>
-</div>
+  <!-- 메인 3분할 레이아웃 -->
+  <main class="game-layout">
 
-<script src="script.js"></script>
+    <!-- 좌측: 도매 시장 -->
+    <section class="panel market-panel">
+      <h2 class="panel-title">🚚 도매 시장</h2>
+      <p class="panel-desc">신선한 과일을 저렴한 도매가로 들여오세요.</p>
+      <div id="marketList" class="card-list"></div>
+    </section>
+
+    <!-- 중앙: 진열대 -->
+    <section class="panel shelf-panel">
+      <h2 class="panel-title">🏪 진열대</h2>
+      <p class="panel-desc">창고 재고를 진열하고 판매 가격을 정하세요.</p>
+      <div id="shelfList" class="card-list"></div>
+    </section>
+
+    <!-- 우측: 판매 로그 & 정산 -->
+    <section class="panel log-panel">
+      <h2 class="panel-title">🧾 오늘의 장부</h2>
+      <div class="today-summary">
+        <div class="summary-item">
+          <span class="summary-label">방문 손님</span>
+          <span id="visitorCount" class="summary-value">0명</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">판매 개수</span>
+          <span id="soldCount" class="summary-value">0개</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">오늘 매출</span>
+          <span id="revenueCount" class="summary-value">0원</span>
+        </div>
+      </div>
+      <div id="salesLog" class="sales-log"></div>
+    </section>
+
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="script.js"></script>
 </body>
 </html>
